@@ -14,7 +14,7 @@ class XMLParser(object):
         for node in self.root:
             setTroncons = set()
             for troncon in node:
-                newTroncSort = TroncSort(troncon.attrib['nomRue'], float(troncon.attrib['vitesse']), float(troncon.attrib['longueur']), int(troncon.attrib['destination']))
+                newTroncSort = TroncSort(troncon.attrib['nomRue'], float(troncon.attrib['vitesse']), float(troncon.attrib['longueur']), int(troncon.attrib['destination']), int(node.attrib['id']))
                 setTroncons.add(newTroncSort)
             newNode = Noeud(int(node.attrib['id']), int(node.attrib['x']), int(node.attrib['y']), setTroncons)
             self.setNoeuds.add(newNode)

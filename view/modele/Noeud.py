@@ -4,3 +4,4 @@ class Noeud(object):
         self.x = x
         self.y = y
         self.setTroncSort = setTroncSort
+	self.parent = None
