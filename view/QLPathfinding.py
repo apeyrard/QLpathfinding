@@ -1,8 +1,11 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python2.7
 
 import wx
 import heapq
 from modele.XMLParser import XMLParser
+import thread
+from time import sleep
+from math import sqrt
 
 
 # Create a new frame class, derived from the wxPython Frame.
@@ -13,9 +16,12 @@ class MyFrame(wx.Frame):
         self.parser = None
         self.start = None
         self.end = None
-        self.path = None
+
         self.visitedNodes = set()
-        self.visitedArcs = set()
+        #self.visitedLock = thread.allocate_lock()
+        self.drawLock = thread.allocate_lock()
+        self.path = set()
+        #self.pathLock = thread.allocate_lock()
         self.statusbar = self.CreateStatusBar()
         self.panel = wx.Panel(self, size=(800, 800))
 
@@ -41,6 +47,7 @@ class MyFrame(wx.Frame):
         self.Show(True)
 
     def OnPaint(self, event):
+        self.drawLock.acquire()
         dc = wx.PaintDC(self.panel)
 
         if self.parser is not None:
@@ -53,22 +60,19 @@ class MyFrame(wx.Frame):
                         destination = self.nodeSetSearchId(arc.destination)
                         dc.DrawLine(origine.x, origine.y, destination.x, destination.y)
 
-        if self.path:
-            for element in self.path:
-                dc.SetPen(wx.Pen('green', 4))
-                dc.DrawCircle(self.start.x, self.start.y, 4)
-
+        #self.visitedLock.acquire()
         if self.visitedNodes:
             for element in self.visitedNodes:
                 dc.SetPen(wx.Pen('yellow', 4))
                 dc.DrawCircle(element.x, element.y, 4)
+        #self.visitedLock.release()
 
-        if self.visitedArcs:
-            for element in self.visitedArcs:
-                dc.SetPen(wx.Pen('yellow', (element.vitesse - 3) * 2))
-                origine = self.nodeSetSearchId(element.origine)
-                destination = self.nodeSetSearchId(element.destination)
-                dc.DrawLine(origine.x, origine.y, destination.x, destination.y)
+        #self.pathLock.acquire()
+        if self.path:
+            for element in self.path:
+                dc.SetPen(wx.Pen('cyan', 4))
+                dc.DrawCircle(element.x, element.y, 4)
+        #self.pathLock.release()
 
         if self.start is not None:
             dc.SetPen(wx.Pen('green', 4))
@@ -78,11 +82,17 @@ class MyFrame(wx.Frame):
             dc.SetPen(wx.Pen('red', 4))
             dc.DrawCircle(self.end.x, self.end.y, 4)
 
+        self.drawLock.release()
+
     def OnLaunch(self, event):
+        #RAZ
+        for item in self.parser.setNoeuds:
+            item.parent = None
         if self.parser is not None and self.start is not None and self.end is not None:
             self.visitedNodes.clear()
-            self.path = None
-            self.path = self.aStar(self.parser.setNoeuds, self.start, self.end)
+            self.path.clear()
+            thread.start_new_thread(self.aStar, (self.parser.setNoeuds, self.start, self.end))
+            #self.aStar(self.parser.setNoeuds, self.start, self.end)
             self.Refresh()
 
     def OnLeftClick(self, event):
@@ -139,7 +149,7 @@ class MyFrame(wx.Frame):
         return None
 
     def aStar(self, graph, current, end):
-        self.statusbar.SetStatusText('Computing...')
+        self.drawLock.acquire()
         openSet = set()
         openHeap = []
         closedSet = set()
@@ -151,7 +161,11 @@ class MyFrame(wx.Frame):
                 path.append(c)
             path.reverse()
             for item in path:
-                self.visitedNodes.add(item)
+                #self.pathLock.acquire()
+                self.path.add(item)
+                #self.pathLock.release()
+            self.drawLock.release()
+            self.Refresh()
             return path
 
         openSet.add(current)
@@ -159,18 +173,24 @@ class MyFrame(wx.Frame):
         while openSet:
             current = heapq.heappop(openHeap)[1]
             if current == end:
-                self.statusbar.SetStatusText('')
                 return retracePath(current)
             openSet.remove(current)
             closedSet.add(current)
+            self.visitedNodes.add(current)
+            self.drawLock.release()
+            self.Refresh()
+            sleep(0.01)
+            self.drawLock.acquire()
             for arc in current.setTroncSort:
                 node = self.nodeSetSearchId(arc.destination)
                 if node not in closedSet:
-                    node.H = (abs(end.x - node.x) + abs(end.y - node.y)) * 10
+                    node.H = (sqrt((end.x - node.x)**2 + (end.y - node.y)**2))
+                    #node.H = 0
                     if node not in openSet:
                         openSet.add(node)
                         heapq.heappush(openHeap, (node.H, node))
                     node.parent = current
+        self.drawLock.release()
         return []
 
 app = wx.App(False)
