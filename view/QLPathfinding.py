@@ -55,7 +55,7 @@ class MyFrame(wx.Frame):
                     dc.SetPen(wx.Pen('blue', 4))
                     dc.DrawCircle(element.x, element.y, 4)
                     for arc in element.setTroncSort:
-                        dc.SetPen(wx.Pen('blue', (arc.vitesse - 3) * 2))
+                        dc.SetPen(wx.Pen('blue', 3))
                         origine = self.nodeSetSearchId(arc.origine)
                         destination = self.nodeSetSearchId(arc.destination)
                         dc.DrawLine(origine.x, origine.y, destination.x, destination.y)
@@ -148,11 +148,16 @@ class MyFrame(wx.Frame):
                 return element
         return None
 
-    def aStar(self, graph, current, end):
+    def aStar(self, graph, start, end):
         self.drawLock.acquire()
         openSet = set()
-        openHeap = []
         closedSet = set()
+
+        g_score = {}
+        f_score = {}
+
+        g_score[start.idNoeud] = 0
+        f_score[start.idNoeud] = g_score[start.idNoeud] + (sqrt((end.x - start.x)**2 + (end.y - start.y)**2))
 
         def retracePath(c):
             path = [c]
@@ -168,10 +173,15 @@ class MyFrame(wx.Frame):
             self.Refresh()
             return path
 
-        openSet.add(current)
-        openHeap.append((0, current))
+        openSet.add(start)
         while openSet:
-            current = heapq.heappop(openHeap)[1]
+
+            score = None
+            for item in openSet:
+                if score is None or f_score[item.idNoeud] < score:
+                    current = item
+                    score = f_score[item.idNoeud]
+
             if current == end:
                 return retracePath(current)
             openSet.remove(current)
@@ -184,12 +194,13 @@ class MyFrame(wx.Frame):
             for arc in current.setTroncSort:
                 node = self.nodeSetSearchId(arc.destination)
                 if node not in closedSet:
-                    node.H = (sqrt((end.x - node.x)**2 + (end.y - node.y)**2))
-                    #node.H = 0
-                    if node not in openSet:
-                        openSet.add(node)
-                        heapq.heappush(openHeap, (node.H, node))
-                    node.parent = current
+                    tentative_g_score = g_score[current.idNoeud] + (sqrt((node.x - current.x)**2 + (node.y - current.y)**2))
+                    if node not in openSet or tentative_g_score < g_score[node.idNoeud]:
+                        node.parent = current
+                        g_score[node.idNoeud] = tentative_g_score
+                        f_score[node.idNoeud] = g_score[node.idNoeud] + (sqrt((end.x - node.x)**2 + (end.y - node.y)**2))
+                        if node not in openSet:
+                            openSet.add(node)
         self.drawLock.release()
         return []
 
