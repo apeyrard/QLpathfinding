@@ -1,7 +1,6 @@
 #!/usr/bin/env python2.7
 
 import wx
-import heapq
 from modele.XMLParser import XMLParser
 import thread
 from time import sleep
@@ -18,12 +17,10 @@ class MyFrame(wx.Frame):
         self.end = None
 
         self.visitedNodes = set()
-        #self.visitedLock = thread.allocate_lock()
         self.drawLock = thread.allocate_lock()
         self.path = set()
-        #self.pathLock = thread.allocate_lock()
         self.statusbar = self.CreateStatusBar()
-        self.panel = wx.Panel(self, size=(800, 800))
+        self.panel = wx.Panel(self, size=(900, 800))
 
         filemenu = wx.Menu()
         menuOpen = filemenu.Append(wx.ID_OPEN, "&Open", " Choose XML File to open")
@@ -36,6 +33,11 @@ class MyFrame(wx.Frame):
         menuBar.Append(filemenu, "&File")
         self.SetMenuBar(menuBar)
 
+        self.heurChoice = wx.Choice(self.panel, pos=(800, 100), size=(100, 30), choices=["Dijkstra", "Standard", "Relaxed"])
+        self.heurChoice.Bind(wx.EVT_CHOICE, self.OnHeurChoice)
+
+        self.heuristique = self.StandardHeur
+
         self.Bind(wx.EVT_MENU, self.OnOpen, menuOpen)
         self.Bind(wx.EVT_MENU, self.OnAbout, menuAbout)
         self.Bind(wx.EVT_MENU, self.OnExit, menuExit)
@@ -44,7 +46,27 @@ class MyFrame(wx.Frame):
         self.panel.Bind(wx.EVT_RIGHT_DOWN, self.OnRightClick)
         self.Bind(wx.EVT_MENU, self.OnLaunch, menuAStar)
         self.Fit()
+        self.Center()
         self.Show(True)
+
+    def OnHeurChoice(self, event):
+        self.drawLock.acquire()
+        if self.heurChoice.GetCurrentSelection() == 0:
+            self.heuristique = self.DijkstraHeur
+        elif self.heurChoice.GetCurrentSelection() == 1:
+            self.heuristique = self.StandardHeur
+        elif self.heurChoice.GetCurrentSelection() == 2:
+            self.heuristique = self.RelaxedHeur
+        self.drawLock.release()
+
+    def StandardHeur(self, node, end):
+        return (sqrt((end.x - node.x) ** 2 + (end.y - node.y) ** 2))
+
+    def DijkstraHeur(self, node, end):
+        return 0
+
+    def RelaxedHeur(self, node, end):
+        return (abs(end.x - node.x) + abs(end.y - node.y))
 
     def OnPaint(self, event):
         self.drawLock.acquire()
@@ -157,7 +179,7 @@ class MyFrame(wx.Frame):
         f_score = {}
 
         g_score[start.idNoeud] = 0
-        f_score[start.idNoeud] = g_score[start.idNoeud] + (sqrt((end.x - start.x)**2 + (end.y - start.y)**2))
+        f_score[start.idNoeud] = g_score[start.idNoeud] + self.heuristique(start, end)
 
         def retracePath(c):
             path = [c]
@@ -194,11 +216,11 @@ class MyFrame(wx.Frame):
             for arc in current.setTroncSort:
                 node = self.nodeSetSearchId(arc.destination)
                 if node not in closedSet:
-                    tentative_g_score = g_score[current.idNoeud] + (sqrt((node.x - current.x)**2 + (node.y - current.y)**2))
+                    tentative_g_score = g_score[current.idNoeud] + (sqrt((node.x - current.x) ** 2 + (node.y - current.y) ** 2))
                     if node not in openSet or tentative_g_score < g_score[node.idNoeud]:
                         node.parent = current
                         g_score[node.idNoeud] = tentative_g_score
-                        f_score[node.idNoeud] = g_score[node.idNoeud] + (sqrt((end.x - node.x)**2 + (end.y - node.y)**2))
+                        f_score[node.idNoeud] = g_score[node.idNoeud] + self.heuristique(node, end)
                         if node not in openSet:
                             openSet.add(node)
         self.drawLock.release()
