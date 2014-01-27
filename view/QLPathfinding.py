@@ -188,9 +188,9 @@ class MyFrame(wx.Frame):
                     self.RAZ()
                     cout += self.aStar(self.parser.setNoeuds, self.start, item[0])
                     for x in range(0, len(item)):
-                        for item in self.parser.setNoeuds:
-                            item.parent = None
-                        if item[x] == item[len(item)-1]:
+                        for item3 in self.parser.setNoeuds:
+                            item3.parent = None
+                        if item[x] == item[(len(item)-1)]:
                             cout += self.aStar(self.parser.setNoeuds, item[x], self.start)
                         else:
                             cout += self.aStar(self.parser.setNoeuds, item[x], item[x+1])
@@ -200,9 +200,9 @@ class MyFrame(wx.Frame):
         elif self.mode == "Commandes":
             volTotal = 0
             points = list()
-            for item in self.livr:
-                volTotal += item.volume
-                points.append(Point([item.x, item.y]))
+            for item2 in self.livr:
+                volTotal += item2.volume
+                points.append(Point([item2.x, item2.y]))
             nbMinDrone = int(ceil(float(volTotal)/50.0))
            
             ok = False
