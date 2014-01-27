@@ -4,8 +4,12 @@ import wx
 from modele.XMLParser import XMLParser
 import thread
 from time import sleep
-from math import sqrt
-
+from math import sqrt, ceil
+from itertools import permutations
+from modele.Drone import Drone
+from modele.Livraison import Livraison
+import os
+from modele.k_mean import kmeans, Point
 
 # Create a new frame class, derived from the wxPython Frame.
 class MyFrame(wx.Frame):
@@ -15,16 +19,15 @@ class MyFrame(wx.Frame):
         self.parser = None
         self.start = None
         self.end = None
-
         self.visitedNodes = set()
         self.drawLock = thread.allocate_lock()
         self.path = set()
         self.statusbar = self.CreateStatusBar()
         self.panel = wx.Panel(self, size=(900, 800))
-
+        self.setDrones = set()
         filemenu = wx.Menu()
         menuOpen = filemenu.Append(wx.ID_OPEN, "&Open", " Choose XML File to open")
-        menuAStar = filemenu.Append(wx.ID_PRINT, "aStar", " Launch pathfinding")
+        menuAStar = filemenu.Append(wx.ID_PRINT, "Launch", " Launch pathfinding")
         menuAbout = filemenu.Append(wx.ID_ABOUT, "&About", " Information about this program")
         filemenu.AppendSeparator()
         menuExit = filemenu.Append(wx.ID_EXIT, "E&xit", " Terminate the program")
@@ -35,6 +38,14 @@ class MyFrame(wx.Frame):
 
         self.heurChoice = wx.Choice(self.panel, pos=(800, 100), size=(100, 30), choices=["Dijkstra", "Standard", "Relaxed"])
         self.heurChoice.Bind(wx.EVT_CHOICE, self.OnHeurChoice)
+        
+        self.volTxt = wx.TextCtrl(self.panel, pos=(780, 300), size=(150, 30))
+
+        self.heurChoice.Bind(wx.EVT_CHOICE, self.OnHeurChoice)
+        
+        self.modeChoice = wx.Choice(self.panel, pos=(800, 200), size=(100, 30), choices=["aStar", "TSP", "Commandes"])
+        self.mode = "aStar"
+        self.modeChoice.Bind(wx.EVT_CHOICE, self.OnModeChoice)
 
         self.heuristique = self.StandardHeur
 
@@ -59,6 +70,21 @@ class MyFrame(wx.Frame):
             self.heuristique = self.RelaxedHeur
         self.drawLock.release()
 
+    def OnModeChoice(self, event):
+        self.drawLock.acquire()
+        self.start = None
+        self.end = None
+        self.livr = list()
+        self.RAZ()
+        if self.modeChoice.GetCurrentSelection() == 0:
+            self.mode = "aStar"
+        elif self.modeChoice.GetCurrentSelection() == 1:
+            self.end = list()
+            self.mode = "TSP"
+        elif self.modeChoice.GetCurrentSelection() == 2:
+            self.mode = "Commandes"
+        self.drawLock.release()
+
     def StandardHeur(self, node, end):
         return (sqrt((end.x - node.x) ** 2 + (end.y - node.y) ** 2))
 
@@ -72,53 +98,144 @@ class MyFrame(wx.Frame):
         self.drawLock.acquire()
         dc = wx.PaintDC(self.panel)
 
-        if self.parser is not None:
-            for element in self.parser.setNoeuds:
-                    dc.SetPen(wx.Pen('blue', 4))
+        
+        if self.mode != "Commandes":
+            
+            if self.parser is not None:
+                for element in self.parser.setNoeuds:
+                        dc.SetPen(wx.Pen('blue', 4))
+                        dc.DrawCircle(element.x, element.y, 4)
+                        for arc in element.setTroncSort:
+                            dc.SetPen(wx.Pen('blue', 3))
+                            origine = self.nodeSetSearchId(arc.origine)
+                            destination = self.nodeSetSearchId(arc.destination)
+                            dc.DrawLine(origine.x, origine.y, destination.x, destination.y)
+
+            if self.visitedNodes:
+                for element in self.visitedNodes:
+                    dc.SetPen(wx.Pen('yellow', 4))
                     dc.DrawCircle(element.x, element.y, 4)
-                    for arc in element.setTroncSort:
-                        dc.SetPen(wx.Pen('blue', 3))
-                        origine = self.nodeSetSearchId(arc.origine)
-                        destination = self.nodeSetSearchId(arc.destination)
-                        dc.DrawLine(origine.x, origine.y, destination.x, destination.y)
 
-        #self.visitedLock.acquire()
-        if self.visitedNodes:
-            for element in self.visitedNodes:
-                dc.SetPen(wx.Pen('yellow', 4))
-                dc.DrawCircle(element.x, element.y, 4)
-        #self.visitedLock.release()
+            if self.path:
+                for element in self.path:
+                    dc.SetPen(wx.Pen('cyan', 4))
+                    dc.DrawCircle(element.x, element.y, 4)
 
-        #self.pathLock.acquire()
-        if self.path:
-            for element in self.path:
-                dc.SetPen(wx.Pen('cyan', 4))
-                dc.DrawCircle(element.x, element.y, 4)
-        #self.pathLock.release()
+            if self.end is not None:
+                if self.mode == "aStar":
+                    dc.SetPen(wx.Pen('red', 4))
+                    dc.DrawCircle(self.end.x, self.end.y, 4)
+                elif self.mode == "TSP":
+                    for element in self.end:
+                        dc.SetPen(wx.Pen('red', 4))
+                        dc.DrawCircle(element.x, element.y, 4)
 
-        if self.start is not None:
-            dc.SetPen(wx.Pen('green', 4))
-            dc.DrawCircle(self.start.x, self.start.y, 4)
+            if self.start is not None:
+                dc.SetPen(wx.Pen('green', 4))
+                dc.DrawCircle(self.start.x, self.start.y, 4)
 
-        if self.end is not None:
-            dc.SetPen(wx.Pen('red', 4))
-            dc.DrawCircle(self.end.x, self.end.y, 4)
+        else:
+            if self.livr:
+                dc.Clear()
+                os.system('cls' if os.name=='nt' else 'clear')
+                for i in self.livr:
+                    dc.SetPen(wx.Pen('blue', 4))
+                    dc.DrawCircle(i.x, i.y, 4)
+                    print('-----------------------')
+                    print(i.idLivr)
+                    print(str(i.x) + " ; " + str(i.y))
+                    print(i.volume)
+            if self.setDrones:
+                for element in self.setDrones:
+                    if element.idDrone == 0:
+                        dc.SetPen(wx.Pen('red', 4))
+                    elif element.idDrone == 1:
+                        dc.SetPen(wx.Pen('green', 4))
+                    elif element.idDrone == 2:
+                        dc.SetPen(wx.Pen('blue', 4))
+                    elif element.idDrone == 3:
+                        dc.SetPen(wx.Pen('yellow', 4))
+                    elif element.idDrone == 4:
+                        dc.SetPen(wx.Pen('cyan', 4))
+                    else:
+                        dc.SetPen(wx.Pen('black', 4))
+                    for point in element.listLivr:
+                        print(1)
+                        dc.DrawCircle(point.x, point.y, 4)
+
 
         self.drawLock.release()
 
-    def OnLaunch(self, event):
-        #RAZ
+    def RAZ(self):
+        self.setDrones=set()
+        self.visitedNodes.clear()
+        self.path.clear()
         for item in self.parser.setNoeuds:
             item.parent = None
-        if self.parser is not None and self.start is not None and self.end is not None:
-            self.visitedNodes.clear()
-            self.path.clear()
-            thread.start_new_thread(self.aStar, (self.parser.setNoeuds, self.start, self.end))
-            #self.aStar(self.parser.setNoeuds, self.start, self.end)
+        self.Refresh()
+
+    def OnLaunch(self, event):
+        if self.mode == "aStar":
+            self.RAZ()
+            if self.parser is not None and self.start is not None and self.end is not None:
+                thread.start_new_thread(self.aStar, (self.parser.setNoeuds, self.start, self.end))
+                self.Refresh()
+        elif self.mode == "TSP":
+            if self.end:
+                meilleurCout = None
+                cout = 0
+                it = permutations(self.end)
+                for item in it:
+                    self.RAZ()
+                    cout += self.aStar(self.parser.setNoeuds, self.start, item[0])
+                    for x in range(0, len(item)):
+                        for item in self.parser.setNoeuds:
+                            item.parent = None
+                        if item[x] == item[len(item)-1]:
+                            cout += self.aStar(self.parser.setNoeuds, item[x], self.start)
+                        else:
+                            cout += self.aStar(self.parser.setNoeuds, item[x], item[x+1])
+                    if meilleurCout is None or meilleurCout < cout:
+                        meilleurCout = cout
+                        actPath = self.path
+        elif self.mode == "Commandes":
+            volTotal = 0
+            points = list()
+            for item in self.livr:
+                volTotal += item.volume
+                points.append(Point([item.x, item.y]))
+            nbMinDrone = int(ceil(float(volTotal)/50.0))
+           
+            ok = False
+            while(ok == False):
+                ok = True
+                cutoff = 0.5
+                
+                clusters = kmeans(points, nbMinDrone, cutoff)
+
+                for i,c in enumerate(clusters):
+                    listLivr = list()
+                    for p in c.points:
+                        vol = 0
+                        for commande in self.livr:
+                            if commande.x == p.coords[0] and commande.y == p.coords[1]:
+                                listLivr.append(commande)
+                                vol += commande.volume
+                        if vol > 50:
+                            ok = False
+                    self.setDrones.add(Drone(i, listLivr))
+                    
+                
+            self.livr=list()
             self.Refresh()
 
     def OnLeftClick(self, event):
-        if self.parser is not None:
+        self.RAZ()
+        if self.mode == "Commandes":
+            x, y = event.GetPositionTuple()
+            newLivr = Livraison(len(self.livr),x,y,int(self.volTxt.GetValue()))
+            self.livr.append(newLivr)
+        elif self.parser is not None:
             x, y = event.GetPositionTuple()
             dist = None
             closest = None
@@ -131,16 +248,21 @@ class MyFrame(wx.Frame):
         event.Skip()
 
     def OnRightClick(self, event):
-        if self.parser is not None:
-            x, y = event.GetPositionTuple()
-            dist = None
-            closest = None
-            for node in self.parser.setNoeuds:
-                if dist is None or (x - node.x) * (x - node.x) + (y - node.y) * (y - node.y) < dist:
-                    dist = (x - node.x) * (x - node.x) + (y - node.y) * (y - node.y)
-                    closest = node
-            self.end = closest
-            self.Refresh()
+        self.RAZ()
+        if self.mode != "Commandes":
+            if self.parser is not None:
+                x, y = event.GetPositionTuple()
+                dist = None
+                closest = None
+                for node in self.parser.setNoeuds:
+                    if dist is None or (x - node.x) * (x - node.x) + (y - node.y) * (y - node.y) < dist:
+                        dist = (x - node.x) * (x - node.x) + (y - node.y) * (y - node.y)
+                        closest = node
+                if self.mode == "aStar":
+                    self.end = closest
+                elif self.mode == "TSP":
+                    self.end.append(closest)
+                self.Refresh()
         event.Skip()
 
     def OnAbout(self, event):
@@ -171,7 +293,8 @@ class MyFrame(wx.Frame):
         return None
 
     def aStar(self, graph, start, end):
-        self.drawLock.acquire()
+        if self.mode == "aStar":
+            self.drawLock.acquire()
         openSet = set()
         closedSet = set()
 
@@ -181,19 +304,18 @@ class MyFrame(wx.Frame):
         g_score[start.idNoeud] = 0
         f_score[start.idNoeud] = g_score[start.idNoeud] + self.heuristique(start, end)
 
-        def retracePath(c):
+        def retracePath(c, cout):
             path = [c]
             while c.parent is not None:
                 c = c.parent
                 path.append(c)
             path.reverse()
             for item in path:
-                #self.pathLock.acquire()
                 self.path.add(item)
-                #self.pathLock.release()
-            self.drawLock.release()
+            if self.mode == "aStar":
+                self.drawLock.release()
             self.Refresh()
-            return path
+            return cout
 
         openSet.add(start)
         while openSet:
@@ -205,14 +327,17 @@ class MyFrame(wx.Frame):
                     score = f_score[item.idNoeud]
 
             if current == end:
-                return retracePath(current)
+                return retracePath(current, g_score[current.idNoeud])
             openSet.remove(current)
             closedSet.add(current)
-            self.visitedNodes.add(current)
-            self.drawLock.release()
-            self.Refresh()
-            sleep(0.01)
-            self.drawLock.acquire()
+            
+            if self.mode == "aStar":
+                self.visitedNodes.add(current)
+                self.drawLock.release()
+                self.Refresh()
+                sleep(0.01)
+                self.drawLock.acquire()
+            
             for arc in current.setTroncSort:
                 node = self.nodeSetSearchId(arc.destination)
                 if node not in closedSet:
@@ -223,7 +348,8 @@ class MyFrame(wx.Frame):
                         f_score[node.idNoeud] = g_score[node.idNoeud] + self.heuristique(node, end)
                         if node not in openSet:
                             openSet.add(node)
-        self.drawLock.release()
+        if self.mode == "aStar":
+            self.drawLock.release()
         return []
 
 app = wx.App(False)
