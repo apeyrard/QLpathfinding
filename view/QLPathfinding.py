@@ -160,7 +160,6 @@ class MyFrame(wx.Frame):
                     else:
                         dc.SetPen(wx.Pen('black', 4))
                     for point in element.listLivr:
-                        print(1)
                         dc.DrawCircle(point.x, point.y, 4)
 
 
@@ -207,7 +206,13 @@ class MyFrame(wx.Frame):
             nbMinDrone = int(ceil(float(volTotal)/50.0))
            
             ok = False
+            nbRate = 0
             while(ok == False):
+                self.setDrones = set()
+                if nbRate >= 20:
+                    nbMinDrone += 1
+                    nbRate = 0
+
                 ok = True
                 cutoff = 0.5
                 
@@ -215,17 +220,31 @@ class MyFrame(wx.Frame):
 
                 for i,c in enumerate(clusters):
                     listLivr = list()
+                    vol = 0
                     for p in c.points:
-                        vol = 0
                         for commande in self.livr:
                             if commande.x == p.coords[0] and commande.y == p.coords[1]:
                                 listLivr.append(commande)
                                 vol += commande.volume
-                        if vol > 50:
-                            ok = False
+                    if vol > 50:
+                        nbRate += 1
+                        print('trop lourd')
+                        ok = False
                     self.setDrones.add(Drone(i, listLivr))
-                    
-                
+
+                    for drone in self.setDrones:
+                        distance = 0
+                        for x in range(len(drone.listLivr)):
+                            if x != len(drone.listLivr)-1:
+                                distance += abs(drone.listLivr[x].x-drone.listLivr[x+1].x) + abs(drone.listLivr[x].y-drone.listLivr[x+1].y)
+                            else:
+                                distance += abs(drone.listLivr[x].x-drone.listLivr[0].x) + abs(drone.listLivr[x].y-drone.listLivr[0].y)
+                        if distance > 2000:
+                            print('trop long')
+                            nbRate += 1
+                            ok = False
+
+
             self.livr=list()
             self.Refresh()
 
