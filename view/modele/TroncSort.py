@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+#Classe représentant les troncons sortant du réseau
 class TroncSort(object):
     def __init__(self, nom, vitesse, longueur, destination, origine):
         self.nom = nom

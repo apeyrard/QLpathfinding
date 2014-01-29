@@ -1,39 +1,49 @@
-import sys, math, random
+# -*- coding: utf-8 -*-
+import math, random
+
 
 class Point:
-    def __init__(self, coords, reference=None):
-        self.coords = coords
-        self.n = len(coords)
-        self.reference = reference
-    def __repr__(self):
-        return str(self.coords)
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
 
+
+#Cluster de points
 class Cluster:
     def __init__(self, points):
-        if len(points) == 0: raise Exception("ILLEGAL: empty cluster")
         self.points = points
-        self.n = points[0].n
-        for p in points:
-            if p.n != self.n: raise Exception("ILLEGAL: wrong dimensions")
+
         self.centroid = self.calculateCentroid()
-    def __repr__(self):
-        return str(self.points)
+
     def update(self, points):
         old_centroid = self.centroid
         self.points = points
         self.centroid = self.calculateCentroid()
         return getDistance(old_centroid, self.centroid)
-    def calculateCentroid(self):
-        reduce_coord = lambda i:reduce(lambda x,p : x + p.coords[i],self.points,0.0)    
-        centroid_coords = [reduce_coord(i)/len(self.points) for i in range(self.n)] 
-        return Point(centroid_coords)
 
-def kmeans(points, k, cutoff):
+    def calculateCentroid(self):
+        x = 0
+        y = 0
+        #le centroid est un point barycentre des points du cluster
+        for p in self.points:
+            x += p.x
+            y += p.y
+        x = x/len(self.points)
+        y = y/len(self.points)
+        return Point(x, y)
+
+def kmeans(points, k, epsilon):
+    #on génère k points aléatoires qui serviront de centroides initiaux
     initial = random.sample(points, k)
+    #on génère les clusters correspondant
     clusters = [Cluster([p]) for p in initial]
-    while True:
+
+    flag = True
+    while flag:
+
         lists = [ [] for c in clusters]
         for p in points:
+            #pour chaque point on trouve le centroide le plus proche
             smallest_distance = getDistance(p,clusters[0].centroid)
             index = 0
             for i in range(len(clusters[1:])):
@@ -41,20 +51,18 @@ def kmeans(points, k, cutoff):
                 if distance < smallest_distance:
                     smallest_distance = distance
                     index = i+1
+            #on ajoute le point a la liste du centroide le plus proche
             lists[index].append(p)
+
+        #si les centroides se déplacent de moins de epsilon, on s'arrete
         biggest_shift = 0.0
         for i in range(len(clusters)):
             shift = clusters[i].update(lists[i])
             biggest_shift = max(biggest_shift, shift)
-        if biggest_shift < cutoff: 
-            break
+        if biggest_shift < epsilon:
+            flag = False
     return clusters
 
 def getDistance(a, b):
-    if a.n != b.n: raise Exception("ILLEGAL: non comparable points")
-    ret = reduce(lambda x,y: x + pow((a.coords[y]-b.coords[y]), 2),range(a.n),0.0)
-    return math.sqrt(ret)
-
-def makeRandomPoint(n, lower, upper):
-    return Point([random.uniform(lower, upper) for i in range(n)])
-
+    dist = math.sqrt(pow(a.x-b.x, 2) + pow(a.y-b.y,2))
+    return dist

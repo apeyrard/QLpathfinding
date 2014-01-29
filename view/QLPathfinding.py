@@ -1,17 +1,16 @@
 #!/usr/bin/env python2.7
+# -*- coding: utf-8 -*-
 
-import wx
+import wx, thread, os, Heuristiques, settings
 from modele.XMLParser import XMLParser
-import thread
-from time import sleep
-from math import sqrt, ceil
+from math import ceil
 from itertools import permutations
 from modele.Drone import Drone
 from modele.Livraison import Livraison
-import os
 from modele.k_mean import kmeans, Point
+from astar import aStar, nodeSetSearchId
 
-# Create a new frame class, derived from the wxPython Frame.
+
 class MyFrame(wx.Frame):
     def __init__(self, parent, title):
         wx.Frame.__init__(self, parent, title=title)
@@ -20,15 +19,17 @@ class MyFrame(wx.Frame):
         self.start = None
         self.end = None
         self.visitedNodes = set()
-        self.drawLock = thread.allocate_lock()
+        self.setDrones = set()
         self.path = set()
+
+        # verrou général
+        self.lock = thread.allocate_lock()
+
         self.statusbar = self.CreateStatusBar()
         self.panel = wx.Panel(self, size=(900, 800))
-        self.setDrones = set()
         filemenu = wx.Menu()
         menuOpen = filemenu.Append(wx.ID_OPEN, "&Open", " Choose XML File to open")
         menuAStar = filemenu.Append(wx.ID_PRINT, "Launch", " Launch pathfinding")
-        menuAbout = filemenu.Append(wx.ID_ABOUT, "&About", " Information about this program")
         filemenu.AppendSeparator()
         menuExit = filemenu.Append(wx.ID_EXIT, "E&xit", " Terminate the program")
 
@@ -47,10 +48,9 @@ class MyFrame(wx.Frame):
         self.mode = "aStar"
         self.modeChoice.Bind(wx.EVT_CHOICE, self.OnModeChoice)
 
-        self.heuristique = self.StandardHeur
+        self.heuristique = Heuristiques.StandardHeur
 
         self.Bind(wx.EVT_MENU, self.OnOpen, menuOpen)
-        self.Bind(wx.EVT_MENU, self.OnAbout, menuAbout)
         self.Bind(wx.EVT_MENU, self.OnExit, menuExit)
         self.panel.Bind(wx.EVT_PAINT, self.OnPaint)
         self.panel.Bind(wx.EVT_LEFT_DOWN, self.OnLeftClick)
@@ -61,17 +61,19 @@ class MyFrame(wx.Frame):
         self.Show(True)
 
     def OnHeurChoice(self, event):
-        self.drawLock.acquire()
+        #choix de l'heuristique
+        self.lock.acquire()
         if self.heurChoice.GetCurrentSelection() == 0:
-            self.heuristique = self.DijkstraHeur
+            self.heuristique = Heuristiques.DijkstraHeur
         elif self.heurChoice.GetCurrentSelection() == 1:
-            self.heuristique = self.StandardHeur
+            self.heuristique = Heuristiques.StandardHeur
         elif self.heurChoice.GetCurrentSelection() == 2:
-            self.heuristique = self.RelaxedHeur
-        self.drawLock.release()
+            self.heuristique = Heuristiques.RelaxedHeur
+        self.lock.release()
 
     def OnModeChoice(self, event):
-        self.drawLock.acquire()
+        #choix du mode
+        self.lock.acquire()
         self.start = None
         self.end = None
         self.livr = list()
@@ -83,32 +85,22 @@ class MyFrame(wx.Frame):
             self.mode = "TSP"
         elif self.modeChoice.GetCurrentSelection() == 2:
             self.mode = "Commandes"
-        self.drawLock.release()
-
-    def StandardHeur(self, node, end):
-        return (sqrt((end.x - node.x) ** 2 + (end.y - node.y) ** 2))
-
-    def DijkstraHeur(self, node, end):
-        return 0
-
-    def RelaxedHeur(self, node, end):
-        return (abs(end.x - node.x) + abs(end.y - node.y))
+        self.lock.release()
 
     def OnPaint(self, event):
-        self.drawLock.acquire()
+        self.lock.acquire()
         dc = wx.PaintDC(self.panel)
 
-        
         if self.mode != "Commandes":
-            
+
             if self.parser is not None:
                 for element in self.parser.setNoeuds:
                         dc.SetPen(wx.Pen('blue', 4))
                         dc.DrawCircle(element.x, element.y, 4)
                         for arc in element.setTroncSort:
                             dc.SetPen(wx.Pen('blue', 3))
-                            origine = self.nodeSetSearchId(arc.origine)
-                            destination = self.nodeSetSearchId(arc.destination)
+                            origine = nodeSetSearchId(self.parser, arc.origine)
+                            destination = nodeSetSearchId(self.parser, arc.destination)
                             dc.DrawLine(origine.x, origine.y, destination.x, destination.y)
 
             if self.visitedNodes:
@@ -137,14 +129,14 @@ class MyFrame(wx.Frame):
         else:
             if self.livr:
                 dc.Clear()
-                os.system('cls' if os.name=='nt' else 'clear')
-                for i in self.livr:
+                os.system('cls' if os.name == 'nt' else 'clear')
+                for livraison in self.livr:
                     dc.SetPen(wx.Pen('blue', 4))
-                    dc.DrawCircle(i.x, i.y, 4)
+                    dc.DrawCircle(livraison.x, livraison.y, 4)
                     print('-----------------------')
-                    print(i.idLivr)
-                    print(str(i.x) + " ; " + str(i.y))
-                    print(i.volume)
+                    print(livraison.idLivr)
+                    print(str(livraison.x) + " ; " + str(livraison.y))
+                    print(livraison.volume)
             if self.setDrones:
                 for element in self.setDrones:
                     if element.idDrone == 0:
@@ -157,103 +149,46 @@ class MyFrame(wx.Frame):
                         dc.SetPen(wx.Pen('yellow', 4))
                     elif element.idDrone == 4:
                         dc.SetPen(wx.Pen('cyan', 4))
+                    elif element.idDrone == 5:
+                        dc.SetPen(wx.Pen('white', 4))
+                    elif element.idDrone == 6:
+                        dc.SetPen(wx.Pen('gray', 4))
+                    elif element.idDrone == 7:
+                        dc.SetPen(wx.Pen('pink', 4))
+                    elif element.idDrone == 8:
+                        dc.SetPen(wx.Pen('purple', 4))
+                    elif element.idDrone == 9:
+                        dc.SetPen(wx.Pen('brown', 4))
                     else:
                         dc.SetPen(wx.Pen('black', 4))
                     for point in element.listLivr:
                         dc.DrawCircle(point.x, point.y, 4)
 
-
-        self.drawLock.release()
+        self.lock.release()
 
     def RAZ(self):
-        self.setDrones=set()
+        self.setDrones = set()
         self.visitedNodes.clear()
         self.path.clear()
-        for item in self.parser.setNoeuds:
-            item.parent = None
+        if self.parser is not None:
+            for noeud in self.parser.setNoeuds:
+                noeud.parent = None
         self.Refresh()
-
-    def OnLaunch(self, event):
-        if self.mode == "aStar":
-            self.RAZ()
-            if self.parser is not None and self.start is not None and self.end is not None:
-                thread.start_new_thread(self.aStar, (self.parser.setNoeuds, self.start, self.end))
-                self.Refresh()
-        elif self.mode == "TSP":
-            if self.end:
-                meilleurCout = None
-                cout = 0
-                it = permutations(self.end)
-                for item in it:
-                    self.RAZ()
-                    cout += self.aStar(self.parser.setNoeuds, self.start, item[0])
-                    for x in range(0, len(item)):
-                        for item3 in self.parser.setNoeuds:
-                            item3.parent = None
-                        if item[x] == item[(len(item)-1)]:
-                            cout += self.aStar(self.parser.setNoeuds, item[x], self.start)
-                        else:
-                            cout += self.aStar(self.parser.setNoeuds, item[x], item[x+1])
-                    if meilleurCout is None or meilleurCout < cout:
-                        meilleurCout = cout
-                        actPath = self.path
-        elif self.mode == "Commandes":
-            volTotal = 0
-            points = list()
-            for item2 in self.livr:
-                volTotal += item2.volume
-                points.append(Point([item2.x, item2.y]))
-            nbMinDrone = int(ceil(float(volTotal)/50.0))
-           
-            ok = False
-            nbRate = 0
-            while(ok == False):
-                self.setDrones = set()
-                if nbRate >= 20:
-                    nbMinDrone += 1
-                    nbRate = 0
-
-                ok = True
-                cutoff = 0.5
-                
-                clusters = kmeans(points, nbMinDrone, cutoff)
-
-                for i,c in enumerate(clusters):
-                    listLivr = list()
-                    vol = 0
-                    for p in c.points:
-                        for commande in self.livr:
-                            if commande.x == p.coords[0] and commande.y == p.coords[1]:
-                                listLivr.append(commande)
-                                vol += commande.volume
-                    if vol > 50:
-                        nbRate += 1
-                        print('trop lourd')
-                        ok = False
-                    self.setDrones.add(Drone(i, listLivr))
-
-                    for drone in self.setDrones:
-                        distance = 0
-                        for x in range(len(drone.listLivr)):
-                            if x != len(drone.listLivr)-1:
-                                distance += abs(drone.listLivr[x].x-drone.listLivr[x+1].x) + abs(drone.listLivr[x].y-drone.listLivr[x+1].y)
-                            else:
-                                distance += abs(drone.listLivr[x].x-drone.listLivr[0].x) + abs(drone.listLivr[x].y-drone.listLivr[0].y)
-                        if distance > 2000:
-                            print('trop long')
-                            nbRate += 1
-                            ok = False
-
-
-            self.livr=list()
-            self.Refresh()
 
     def OnLeftClick(self, event):
         self.RAZ()
+
+        #en mode commande, on ajoute une livraison
         if self.mode == "Commandes":
             x, y = event.GetPositionTuple()
-            newLivr = Livraison(len(self.livr),x,y,int(self.volTxt.GetValue()))
-            self.livr.append(newLivr)
+            try:
+                newLivr = Livraison(len(self.livr), x, y, int(self.volTxt.GetValue()))
+                self.livr.append(newLivr)
+            except ValueError:
+                errorDial = wx.MessageDialog(None, 'Incorrect value', 'Error', wx.OK | wx.ICON_ERROR)
+                errorDial.ShowModal()
+
+        #sinon, on deplace le départ au noeud le plus proche
         elif self.parser is not None:
             x, y = event.GetPositionTuple()
             dist = None
@@ -280,14 +215,12 @@ class MyFrame(wx.Frame):
                 if self.mode == "aStar":
                     self.end = closest
                 elif self.mode == "TSP":
-                    self.end.append(closest)
+                    if closest in self.end:
+                        self.end.remove(closest)
+                    else:
+                        self.end.append(closest)
                 self.Refresh()
         event.Skip()
-
-    def OnAbout(self, event):
-        dlg = wx.MessageDialog(self, "Logiciel pour la visualisation des algorithmes de pathfinding du projet QL", "About QLPathfinding", wx.OK)
-        dlg.ShowModal()
-        dlg.Destroy()
 
     def OnExit(self, event):
         self.Close(True)
@@ -298,78 +231,84 @@ class MyFrame(wx.Frame):
         if dlg.ShowModal() == wx.ID_OK:
             self.filename = dlg.GetFilename()
             self.dirname = dlg.GetDirectory()
-            self.statusbar.SetStatusText('Parsing...')
             self.parser = XMLParser(self.dirname + '/' + self.filename)
             self.toDrawSet = self.parser.setNoeuds
-            self.statusbar.SetStatusText('')
             self.Refresh()
         dlg.Destroy()
 
-    def nodeSetSearchId(self, idNoeud):
-        for element in self.parser.setNoeuds:
-            if element.idNoeud == idNoeud:
-                return element
-        return None
-
-    def aStar(self, graph, start, end):
+    def OnLaunch(self, event):
         if self.mode == "aStar":
-            self.drawLock.acquire()
-        openSet = set()
-        closedSet = set()
-
-        g_score = {}
-        f_score = {}
-
-        g_score[start.idNoeud] = 0
-        f_score[start.idNoeud] = g_score[start.idNoeud] + self.heuristique(start, end)
-
-        def retracePath(c, cout):
-            path = [c]
-            while c.parent is not None:
-                c = c.parent
-                path.append(c)
-            path.reverse()
-            for item in path:
-                self.path.add(item)
-            if self.mode == "aStar":
-                self.drawLock.release()
-            self.Refresh()
-            return cout
-
-        openSet.add(start)
-        while openSet:
-
-            score = None
-            for item in openSet:
-                if score is None or f_score[item.idNoeud] < score:
-                    current = item
-                    score = f_score[item.idNoeud]
-
-            if current == end:
-                return retracePath(current, g_score[current.idNoeud])
-            openSet.remove(current)
-            closedSet.add(current)
-            
-            if self.mode == "aStar":
-                self.visitedNodes.add(current)
-                self.drawLock.release()
+            self.RAZ()
+            if self.parser is not None and self.start is not None and self.end is not None:
+                thread.start_new_thread(aStar, (self.parser, self.start, self.end, self.heuristique, self))
                 self.Refresh()
-                sleep(0.01)
-                self.drawLock.acquire()
-            
-            for arc in current.setTroncSort:
-                node = self.nodeSetSearchId(arc.destination)
-                if node not in closedSet:
-                    tentative_g_score = g_score[current.idNoeud] + (sqrt((node.x - current.x) ** 2 + (node.y - current.y) ** 2))
-                    if node not in openSet or tentative_g_score < g_score[node.idNoeud]:
-                        node.parent = current
-                        g_score[node.idNoeud] = tentative_g_score
-                        f_score[node.idNoeud] = g_score[node.idNoeud] + self.heuristique(node, end)
-                        if node not in openSet:
-                            openSet.add(node)
-        if self.mode == "aStar":
-            self.drawLock.release()
-        return []
+
+        elif self.mode == "TSP":
+            if self.end:
+                meilleurCout = None
+                cout = 0
+                it = permutations(self.end)
+                for permut in it:
+                    self.RAZ()
+                    cout += aStar(self.parser, self.start, permut[0], self.heuristique, self)
+                    for x in range(0, len(permut)):
+                        for noeud in self.parser.setNoeuds:
+                            noeud.parent = None
+                        if permut[x] == permut[(len(permut) - 1)]:
+                            cout += aStar(self.parser, permut[x], self.start, self.heuristique, self)
+                        else:
+                            cout += aStar(self.parser, permut[x], permut[x + 1], self.heuristique, self)
+                    if meilleurCout is None or meilleurCout < cout:
+                        meilleurCout = cout
+
+        elif self.mode == "Commandes":
+            volTotal = 0
+            points = list()
+            for livraison in self.livr:
+                volTotal += livraison.volume
+                points.append(Point(livraison.x, livraison.y))
+            nbMinDrone = int(ceil(float(volTotal) / settings.DRONE_CAPACITY))
+
+            ok = False
+            nbRate = 0
+            while(ok is False):
+                self.setDrones = set()
+                if nbRate >= settings.NB_ESSAI:
+                    nbMinDrone += 1
+                    nbRate = 0
+
+                ok = True
+
+                clusters = kmeans(points, nbMinDrone, settings.EPSILON)
+
+                for i, c in enumerate(clusters):
+                    listLivr = list()
+                    vol = 0
+                    for p in c.points:
+                        for commande in self.livr:
+                            if commande.x == p.x and commande.y == p.y:
+                                listLivr.append(commande)
+                                vol += commande.volume
+                    if vol > settings.DRONE_CAPACITY:
+                        nbRate += 1
+                        print('trop lourd')
+                        ok = False
+                    self.setDrones.add(Drone(i, listLivr))
+
+                    for drone in self.setDrones:
+                        distance = 0
+                        for x in range(len(drone.listLivr)):
+                            if x != len(drone.listLivr) - 1:
+                                distance += abs(drone.listLivr[x].x - drone.listLivr[x + 1].x) + abs(drone.listLivr[x].y - drone.listLivr[x + 1].y)
+                            else:
+                                distance += abs(drone.listLivr[x].x - drone.listLivr[0].x) + abs(drone.listLivr[x].y - drone.listLivr[0].y)
+                        if distance > settings.DRONE_AUTONOMY:
+                            print('trop long')
+                            nbRate += 1
+                            ok = False
+
+            self.livr = list()
+            self.Refresh()
 
 app = wx.App(False)
 frame = MyFrame(None, 'QLPathfinding')
