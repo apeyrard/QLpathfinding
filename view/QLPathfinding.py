@@ -39,11 +39,11 @@ class MyFrame(wx.Frame):
 
         self.heurChoice = wx.Choice(self.panel, pos=(800, 100), size=(100, 30), choices=["Dijkstra", "Standard", "Relaxed"])
         self.heurChoice.Bind(wx.EVT_CHOICE, self.OnHeurChoice)
-        
+
         self.volTxt = wx.TextCtrl(self.panel, pos=(780, 300), size=(150, 30))
 
         self.heurChoice.Bind(wx.EVT_CHOICE, self.OnHeurChoice)
-        
+
         self.modeChoice = wx.Choice(self.panel, pos=(800, 200), size=(100, 30), choices=["aStar", "TSP", "Commandes"])
         self.mode = "aStar"
         self.modeChoice.Bind(wx.EVT_CHOICE, self.OnModeChoice)
